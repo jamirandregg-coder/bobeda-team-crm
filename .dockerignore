@@ -1,0 +1,8 @@
+helm/
+*.md
+*.pdf
+*.py
+.git
+.gitignore
+.dockerignore
+Dockerfile
