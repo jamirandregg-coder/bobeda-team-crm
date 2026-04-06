@@ -1099,6 +1099,63 @@
             font-weight: 500;
         }
 
+        .summary-card {
+            cursor: pointer;
+            position: relative;
+        }
+        .summary-card::after {
+            content: '\25BC';
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            font-size: 10px;
+            color: #bbb;
+            transition: transform 0.2s;
+        }
+        .summary-card.expanded::after {
+            transform: rotate(180deg);
+            color: #888;
+        }
+        .summary-card-detail {
+            grid-column: 1 / -1;
+            background: white;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 16px;
+            animation: slideDown 0.25s ease;
+        }
+        @keyframes slideDown {
+            from { opacity: 0; max-height: 0; transform: translateY(-8px); }
+            to { opacity: 1; max-height: 800px; transform: translateY(0); }
+        }
+        .summary-card-detail-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .summary-detail-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 6px;
+            background: #f9f9fb;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .summary-detail-item:hover { background: #eef1f8; }
+        .summary-detail-item:last-child { margin-bottom: 0; }
+        .summary-detail-address { font-weight: 600; font-size: 14px; color: #1a1a2e; }
+        .summary-detail-meta { display: flex; align-items: center; gap: 10px; }
+        .summary-detail-price { font-weight: 700; font-size: 14px; color: var(--blue); }
+        .summary-detail-agent { padding: 3px 10px; border-radius: 10px; font-size: 12px; font-weight: 700; color: #fff; }
+        .summary-detail-close { font-size: 12px; color: #888; font-weight: 500; }
+        .summary-detail-empty { text-align: center; padding: 16px; color: #aaa; font-size: 14px; }
+
         /* Pipeline Stages */
         .pipeline-stages {
             background: white;
@@ -2959,51 +3016,74 @@
         function renderDashboardSummaryCards() {
             const container = document.getElementById('dashboardSummaryCards');
             container.innerHTML = '';
-
-            // Parse price (e.g., "$1,000,000" -> 1000000)
             const parsePrice = (priceStr) => {
                 return parseInt(priceStr.replace(/[^0-9]/g, '')) || 0;
             };
-
-            // Count Active Listings
-            const activeListing = Object.values(SAMPLE_PROPERTIES).filter(p => p.status === 'Active').length;
-
-            // Count Under Contract
-            const underContract = Object.values(SAMPLE_PROPERTIES).filter(p =>
+            const allProps = Object.values(SAMPLE_PROPERTIES);
+            const activeListings = allProps.filter(p => p.status === 'Active');
+            const underContractProps = allProps.filter(p =>
                 p.status === 'In Progress' || p.status === 'Closing Soon'
-            ).length;
-
-            // Count Closing This Month
+            );
             const today = new Date();
             const thisMonth = today.getMonth();
             const thisYear = today.getFullYear();
-            const closingThisMonth = Object.values(SAMPLE_PROPERTIES).filter(p => {
+            const closingThisMonthProps = allProps.filter(p => {
                 if (!p.estimatedCloseDate) return false;
                 const closeDate = parseLocalDate(p.estimatedCloseDate);
                 return closeDate.getMonth() === thisMonth && closeDate.getFullYear() === thisYear;
-            }).length;
-
-            // Calculate Total Volume
-            const totalVolume = Object.values(SAMPLE_PROPERTIES).reduce((sum, p) => {
+            });
+            const totalVolume = allProps.reduce((sum, p) => {
                 return sum + parsePrice(p.price);
             }, 0);
-
             const cards = [
-                { label: 'Active Listings', count: activeListing, color: 'blue' },
-                { label: 'Under Contract', count: underContract, color: 'gold' },
-                { label: 'Closing This Month', count: closingThisMonth, color: 'green' },
-                { label: 'Total Volume', count: '$' + (totalVolume / 1000000).toFixed(1) + 'M', color: 'orange', isVolume: true }
+                { label: 'Active Listings', count: activeListings.length, color: 'blue', properties: activeListings, key: 'active' },
+                { label: 'Under Contract', count: underContractProps.length, color: 'gold', properties: underContractProps, key: 'contract' },
+                { label: 'Closing This Month', count: closingThisMonthProps.length, color: 'green', properties: closingThisMonthProps, key: 'closing' },
+                { label: 'Total Volume', count: '$' + (totalVolume / 1000000).toFixed(1) + 'M', color: 'orange', properties: allProps, key: 'volume', isVolume: true }
             ];
-
             cards.forEach(card => {
                 const el = document.createElement('div');
-                el.className = `summary-card ${card.color}`;
-                el.innerHTML = `
-                    <div class="summary-card-number">${card.count}</div>
-                    <div class="summary-card-label">${card.label}</div>
-                `;
+                el.className = 'summary-card ' + card.color;
+                el.setAttribute('data-card-key', card.key);
+                el.innerHTML = '<div class="summary-card-number">' + card.count + '</div><div class="summary-card-label">' + card.label + '</div>';
+                el.addEventListener('click', () => toggleSummaryCardDetail(card, el, container));
                 container.appendChild(el);
             });
+        }
+
+        function toggleSummaryCardDetail(card, cardEl, container) {
+            const existingDetail = container.querySelector('.summary-card-detail');
+            const wasExpanded = cardEl.classList.contains('expanded');
+            if (existingDetail) existingDetail.remove();
+            container.querySelectorAll('.summary-card.expanded').forEach(c => c.classList.remove('expanded'));
+            if (wasExpanded) return;
+            cardEl.classList.add('expanded');
+            const detail = document.createElement('div');
+            detail.className = 'summary-card-detail';
+            let title = card.label;
+            if (card.isVolume) title = 'All Transactions';
+            let html = '<div class="summary-card-detail-title">' + title + ' (' + card.properties.length + ')</div>';
+            if (card.properties.length === 0) {
+                html += '<div class="summary-detail-empty">No properties in this category</div>';
+            } else {
+                card.properties.forEach(p => {
+                    const closeStr = p.estimatedCloseDate
+                        ? parseLocalDate(p.estimatedCloseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : '';
+                    const agentBg = p.agent === 'JA' ? 'var(--gold)' : '#6b8cce';
+                    const agentName = p.agent === 'JA' ? 'Jami' : p.agent === 'DR' ? 'Don' : (p.agent || '');
+                    html += '<div class="summary-detail-item" onclick="openPropertyDetail(\'' + p.id + '\')">';
+                    html += '<div><div class="summary-detail-address">' + p.address + '</div>';
+                    if (closeStr) html += '<div class="summary-detail-close">Close: ' + closeStr + '</div>';
+                    html += '</div>';
+                    html += '<div class="summary-detail-meta">';
+                    html += '<span class="summary-detail-price">' + p.price + '</span>';
+                    if (agentName) html += '<span class="summary-detail-agent" style="background:' + agentBg + '">' + agentName + '</span>';
+                    html += '</div></div>';
+                });
+            }
+            detail.innerHTML = html;
+            cardEl.insertAdjacentElement('afterend', detail);
         }
 
         function renderPipelineStages() {
