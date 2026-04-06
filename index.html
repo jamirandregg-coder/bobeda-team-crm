@@ -1156,6 +1156,69 @@
         .summary-detail-close { font-size: 12px; color: #888; font-weight: 500; }
         .summary-detail-empty { text-align: center; padding: 16px; color: #aaa; font-size: 14px; }
 
+        .volume-summary-cards {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-top: 0;
+        }
+        .volume-card {
+            background: white;
+            border-radius: 12px;
+            padding: 18px 20px;
+            box-shadow: var(--shadow);
+            border-left: 4px solid #ccc;
+            cursor: pointer;
+            position: relative;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .volume-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        .volume-card.active-vol { border-left-color: var(--blue); }
+        .volume-card.contract-vol { border-left-color: var(--gold); }
+        .volume-card.closed-vol { border-left-color: var(--green); }
+        .volume-card-amount {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+        .volume-card.active-vol .volume-card-amount { color: var(--blue); }
+        .volume-card.contract-vol .volume-card-amount { color: var(--gold); }
+        .volume-card.closed-vol .volume-card-amount { color: var(--green); }
+        .volume-card-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .volume-card-count {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            background: #f0f0f0;
+            border-radius: 12px;
+            padding: 2px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #666;
+        }
+        .volume-card::after {
+            content: '\25BC';
+            position: absolute;
+            bottom: 10px;
+            right: 14px;
+            font-size: 9px;
+            color: #ccc;
+            transition: transform 0.2s;
+        }
+        .volume-card.expanded::after {
+            transform: rotate(180deg);
+            color: #888;
+        }
+
         /* Pipeline Stages */
         .pipeline-stages {
             background: white;
@@ -2104,6 +2167,14 @@
                         </div>
                     </div>
 
+                    <!-- Volume Summary -->
+                    <div class="dashboard-section">
+                        <div class="dashboard-section-title">Volume Breakdown</div>
+                        <div class="volume-summary-cards" id="volumeSummaryCards">
+                            <!-- Volume cards rendered here -->
+                        </div>
+                    </div>
+
                     <!-- Pipeline Stages -->
                     <div class="dashboard-section">
                         <div class="dashboard-section-title">Transaction Pipeline</div>
@@ -2999,6 +3070,7 @@
 
             // Render Summary Cards
             renderDashboardSummaryCards();
+            renderVolumeSummaryCards();
 
             // Render Pipeline Stages
             renderPipelineStages();
@@ -3062,6 +3134,91 @@
             detail.className = 'summary-card-detail';
             let title = card.label;
             if (card.isVolume) title = 'All Transactions';
+            let html = '<div class="summary-card-detail-title">' + title + ' (' + card.properties.length + ')</div>';
+            if (card.properties.length === 0) {
+                html += '<div class="summary-detail-empty">No properties in this category</div>';
+            } else {
+                card.properties.forEach(p => {
+                    const closeStr = p.estimatedCloseDate
+                        ? parseLocalDate(p.estimatedCloseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : '';
+                    const agentBg = p.agent === 'JA' ? 'var(--gold)' : '#6b8cce';
+                    const agentName = p.agent === 'JA' ? 'Jami' : p.agent === 'DR' ? 'Don' : (p.agent || '');
+                    html += '<div class="summary-detail-item" onclick="openPropertyDetail(\'' + p.id + '\')">';
+                    html += '<div><div class="summary-detail-address">' + p.address + '</div>';
+                    if (closeStr) html += '<div class="summary-detail-close">Close: ' + closeStr + '</div>';
+                    html += '</div>';
+                    html += '<div class="summary-detail-meta">';
+                    html += '<span class="summary-detail-price">' + p.price + '</span>';
+                    if (agentName) html += '<span class="summary-detail-agent" style="background:' + agentBg + '">' + agentName + '</span>';
+                    html += '</div></div>';
+                });
+            }
+            detail.innerHTML = html;
+            cardEl.insertAdjacentElement('afterend', detail);
+        }
+
+        function renderVolumeSummaryCards() {
+            const container = document.getElementById('volumeSummaryCards');
+            if (!container) return;
+            container.innerHTML = '';
+            const parsePrice = (priceStr) => parseInt(priceStr.replace(/[^0-9]/g, '')) || 0;
+            const allProps = Object.values(SAMPLE_PROPERTIES);
+            const today = new Date();
+            const thisYear = today.getFullYear();
+
+            const activeProps = allProps.filter(p => p.status === 'Active');
+            const underContractProps = allProps.filter(p =>
+                p.status === 'In Progress' || p.status === 'Closing Soon'
+            );
+            const closedProps = allProps.filter(p => {
+                if (p.status === 'Closed') return true;
+                if (p.estimatedCloseDate) {
+                    const cd = parseLocalDate(p.estimatedCloseDate);
+                    if (cd < today && cd.getFullYear() === thisYear) return true;
+                }
+                return false;
+            });
+
+            const activeVol = activeProps.reduce((s, p) => s + parsePrice(p.price), 0);
+            const contractVol = underContractProps.reduce((s, p) => s + parsePrice(p.price), 0);
+            const closedVol = closedProps.reduce((s, p) => s + parsePrice(p.price), 0);
+
+            const fmt = (v) => {
+                if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M';
+                if (v >= 1000) return '$' + (v / 1000).toFixed(0) + 'K';
+                return '$' + v;
+            };
+
+            const cards = [
+                { label: 'Active Volume', amount: fmt(activeVol), count: activeProps.length, cls: 'active-vol', properties: activeProps, key: 'vol-active' },
+                { label: 'Under Contract Volume', amount: fmt(contractVol), count: underContractProps.length, cls: 'contract-vol', properties: underContractProps, key: 'vol-contract' },
+                { label: 'Closed Volume (2026)', amount: fmt(closedVol), count: closedProps.length, cls: 'closed-vol', properties: closedProps, key: 'vol-closed' }
+            ];
+
+            cards.forEach(card => {
+                const el = document.createElement('div');
+                el.className = 'volume-card ' + card.cls;
+                el.setAttribute('data-card-key', card.key);
+                el.innerHTML = '<div class="volume-card-amount">' + card.amount + '</div>' +
+                    '<div class="volume-card-label">' + card.label + '</div>' +
+                    '<span class="volume-card-count">' + card.count + ' properties</span>';
+                el.addEventListener('click', () => toggleVolumeCardDetail(card, el, container));
+                container.appendChild(el);
+            });
+        }
+
+        function toggleVolumeCardDetail(card, cardEl, container) {
+            const existingDetail = container.querySelector('.summary-card-detail');
+            const wasExpanded = cardEl.classList.contains('expanded');
+            if (existingDetail) existingDetail.remove();
+            container.querySelectorAll('.volume-card.expanded').forEach(c => c.classList.remove('expanded'));
+            if (wasExpanded) return;
+            cardEl.classList.add('expanded');
+            const detail = document.createElement('div');
+            detail.className = 'summary-card-detail';
+            detail.style.gridColumn = '1 / -1';
+            let title = card.label;
             let html = '<div class="summary-card-detail-title">' + title + ' (' + card.properties.length + ')</div>';
             if (card.properties.length === 0) {
                 html += '<div class="summary-detail-empty">No properties in this category</div>';
